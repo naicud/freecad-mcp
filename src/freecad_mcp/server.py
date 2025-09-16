@@ -1,3 +1,4 @@
+import html
 import json
 import logging
 import os
@@ -7,6 +8,8 @@ from typing import Any, AsyncIterator, Callable, Dict, Literal, TypeVar
 
 from fastmcp import FastMCP, Context
 from mcp.types import ImageContent, TextContent
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, JSONResponse
 
 # Configure logging
 logging.basicConfig(
@@ -236,6 +239,25 @@ def _run_freecad_query(
 
     response: ToolResponse = [TextContent(type="text", text=message)]
     return add_screenshot_if_available(response, screenshot) if include_screenshot else response
+
+
+async def _collect_tool_summaries() -> list[dict[str, Any]]:
+    """Return metadata for every registered tool."""
+    tools = await mcp.get_tools()
+    summaries: list[dict[str, Any]] = []
+    for name, tool in sorted(tools.items(), key=lambda item: item[0]):
+        summary: dict[str, Any] = {
+            "name": tool.name or name,
+            "description": tool.description or "",
+        }
+        if tool.tags:
+            summary["tags"] = sorted(tool.tags)
+        if tool.parameters:
+            summary["parameters"] = tool.parameters
+        if tool.output_schema:
+            summary["output_schema"] = tool.output_schema
+        summaries.append(summary)
+    return summaries
 
 
 @mcp.tool()
@@ -622,6 +644,110 @@ def get_parts_list(ctx: Context) -> ToolResponse:
     )
 
 
+@mcp.custom_route("/healthz", methods=["GET"], include_in_schema=False)
+async def health_check(_: Request) -> JSONResponse:
+    """Simple readiness probe for automation and dashboards."""
+
+    status = "ok"
+    freecad_status: dict[str, Any] = {"connected": True}
+
+    try:
+        connection = get_freecad_connection()
+        if not connection.ping():
+            status = "degraded"
+            freecad_status.update(
+                connected=False,
+                message="FreeCAD RPC ping returned False",
+            )
+    except Exception as exc:  # pragma: no cover - network boundary
+        status = "degraded"
+        freecad_status.update(connected=False, error=str(exc))
+
+    tool_summaries = await _collect_tool_summaries()
+    tools_info = {
+        "count": len(tool_summaries),
+        "names": [summary["name"] for summary in tool_summaries],
+    }
+
+    return JSONResponse(
+        {
+            "status": status,
+            "details": {
+                "freecad": freecad_status,
+                "tools": tools_info,
+            },
+        },
+        status_code=200 if status == "ok" else 503,
+    )
+
+
+@mcp.custom_route("/docs.json", methods=["GET"])
+async def docs_json(_: Request) -> JSONResponse:
+    """Machine-readable description of registered MCP tools."""
+
+    tool_summaries = await _collect_tool_summaries()
+    return JSONResponse({"tools": tool_summaries})
+
+
+@mcp.custom_route("/docs", methods=["GET"])
+async def docs_page(_: Request) -> HTMLResponse:
+    """Minimal HTML explorer for the MCP tools registry."""
+
+    tool_summaries = await _collect_tool_summaries()
+    sections = []
+    for summary in tool_summaries:
+        block = [f"<h2>{html.escape(summary['name'])}</h2>"]
+        description = summary.get("description") or "No description provided."
+        block.append(f"<p>{html.escape(description)}</p>")
+
+        if tags := summary.get("tags"):
+            block.append(
+                "<p><strong>Tags:</strong> "
+                + ", ".join(html.escape(tag) for tag in tags)
+                + "</p>"
+            )
+
+        if params := summary.get("parameters"):
+            block.append(
+                "<details><summary>Parameters schema</summary><pre>"\
+                + html.escape(json.dumps(params, indent=2))
+                + "</pre></details>"
+            )
+
+        if output_schema := summary.get("output_schema"):
+            block.append(
+                "<details><summary>Output schema</summary><pre>"\
+                + html.escape(json.dumps(output_schema, indent=2))
+                + "</pre></details>"
+            )
+
+        sections.append("\n".join(block))
+
+    section_markup = [f"  <section>{section}</section>" for section in sections]
+    if not section_markup:
+        section_markup = ["  <p>No tools registered.</p>"]
+
+    body = "\n".join(
+        [
+            "<!DOCTYPE html>",
+            "<html lang=\"en\">",
+            "<head>",
+            "  <meta charset=\"utf-8\">",
+            "  <title>FreeCAD MCP Tools</title>",
+            "  <style>body{font-family:system-ui;margin:2rem;}h1{margin-bottom:1rem;}section{margin-bottom:2rem;}details{margin-top:0.5rem;}pre{background:#f4f4f4;padding:0.75rem;border-radius:4px;overflow:auto;}</style>",
+            "</head>",
+            "<body>",
+            "  <h1>FreeCAD MCP Tools</h1>",
+            "  <p>Use <code>/docs.json</code> for a machine-readable listing or <code>/healthz</code> for readiness checks.</p>",
+            *section_markup,
+            "</body>",
+            "</html>",
+        ]
+    )
+
+    return HTMLResponse(body)
+
+
 @mcp.prompt()
 def asset_creation_strategy() -> str:
     return """
@@ -660,11 +786,41 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--only-text-feedback", action="store_true", help="Only return text feedback")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "streamable-http", "sse"],
+        default="stdio",
+        help="Transport to expose (use streamable-http for custom routes)",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host for HTTP-based transports",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port for HTTP-based transports",
+    )
     args = parser.parse_args()
     _only_text_feedback = args.only_text_feedback
     logger.info(f"Only text feedback: {_only_text_feedback}")
     _maybe_enable_debugpy()
-    mcp.run()
+    transport = args.transport
+    http_kwargs: dict[str, Any] = {}
+    if transport != "stdio":
+        http_kwargs.update(host=args.host, port=args.port)
+        logger.info(
+            "Starting FastMCP server with %s transport at %s:%s",
+            transport,
+            args.host,
+            args.port,
+        )
+    else:
+        logger.info("Starting FastMCP server with stdio transport")
+
+    mcp.run(transport=transport, **http_kwargs)
 
 
 def _maybe_enable_debugpy():
