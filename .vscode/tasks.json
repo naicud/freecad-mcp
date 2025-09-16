@@ -1,81 +1,81 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "uv run freecad-mcp (debug)",
-            "type": "shell",
-            "command": "FREECAD_MCP_DEBUGPY_PORT=5678 uv run --with debugpy freecad-mcp",
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "isBackground": true,
-            "problemMatcher": {
-                "owner": "python",
-                "fileLocation": "absolute",
-                "pattern": {
-                    "regexp": "^.*$"
-                },
-                "background": {
-                    "activeOnStart": true,
-                    "beginsPattern": ".*",
-                    "endsPattern": ".*Waiting for debugger attach on.*"
-                }
-            }
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "uv run freecad-mcp (debug)",
+      "type": "shell",
+      "command": "FREECAD_MCP_DEBUGPY_PORT=5678 uv run --with debugpy freecad-mcp",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "python",
+        "fileLocation": "absolute",
+        "pattern": {
+          "regexp": "^.*$"
         },
-        {
-            "label": "uv run freecad-mcp (text only debug)",
-            "type": "shell",
-            "command": "FREECAD_MCP_DEBUGPY_PORT=5679 uv run --with debugpy freecad-mcp -- --only-text-feedback",
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "isBackground": true,
-            "problemMatcher": {
-                "owner": "python",
-                "fileLocation": "absolute",
-                "pattern": {
-                    "regexp": "^.*$"
-                },
-                "background": {
-                    "activeOnStart": true,
-                    "beginsPattern": ".*",
-                    "endsPattern": ".*Waiting for debugger attach on.*"
-                }
-            }
-        },
-        {
-            "label": "uv run freecad-mcp (streamable-http debug)",
-            "type": "shell",
-            "command": "FREECAD_MCP_DEBUGPY_PORT=5680 uv run --with debugpy freecad-mcp -- --transport streamable-http --host 127.0.0.1 --port 8000",
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "isBackground": true,
-            "problemMatcher": {
-                "owner": "python",
-                "fileLocation": "absolute",
-                "pattern": {
-                    "regexp": "^.*$"
-                },
-                "background": {
-                    "activeOnStart": true,
-                    "beginsPattern": ".*",
-                    "endsPattern": ".*Waiting for debugger attach on.*"
-                }
-            }
-        },
-        {
-            "label": "stop debugpy listener",
-            "type": "shell",
-            "command": "bash",
-            "args": [
-                "-lc",
-                "if [ -f .env ]; then set -a; source .env; set +a; fi; HOST=${FREECAD_MCP_DEBUGPY_HOST:-127.0.0.1}; PORT=${FREECAD_MCP_DEBUGPY_PORT:-5678}; PIDS=$(lsof -tiTCP@${HOST}:${PORT} -sTCP:LISTEN 2>/dev/null); if [ -z \"$PIDS\" ]; then echo \"No listeners found on $HOST:$PORT\"; else echo \"Killing $PIDS listening on $HOST:$PORT\"; kill $PIDS; fi"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "problemMatcher": []
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": ".*Waiting for debugger attach on.*"
         }
-    ]
+      }
+    },
+    {
+      "label": "uv run freecad-mcp (text only debug)",
+      "type": "shell",
+      "command": "FREECAD_MCP_DEBUGPY_PORT=5679 uv run --with debugpy freecad-mcp -- --only-text-feedback",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "python",
+        "fileLocation": "absolute",
+        "pattern": {
+          "regexp": "^.*$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": ".*Waiting for debugger attach on.*"
+        }
+      }
+    },
+    {
+      "label": "uv run freecad-mcp (streamable-http debug)",
+      "type": "shell",
+      "command": "FREECAD_MCP_DEBUGPY_PORT=5680 uv run --with debugpy freecad-mcp -- --transport streamable-http --host 127.0.0.1 --port 8000",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "python",
+        "fileLocation": "absolute",
+        "pattern": {
+          "regexp": "^.*$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": ".*Waiting for debugger attach on.*"
+        }
+      }
+    },
+    {
+      "label": "stop debugpy listener",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "if [ -f .env ]; then set -a; source .env; set +a; fi; HOST=${FREECAD_MCP_DEBUGPY_HOST:-127.0.0.1}; PORT=${FREECAD_MCP_DEBUGPY_PORT:-5678}; PIDS=$(lsof -tiTCP@${HOST}:${PORT} -sTCP:LISTEN 2>/dev/null); if [ -z \"$PIDS\" ]; then echo \"No listeners found on $HOST:$PORT\"; else echo \"Killing $PIDS listening on $HOST:$PORT\"; kill $PIDS; fi"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
 }
