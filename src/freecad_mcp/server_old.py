@@ -3,10 +3,10 @@ import logging
 import os
 import xmlrpc.client
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Callable, Dict, Literal, TypeVar
+from typing import AsyncIterator, Dict, Any, Literal
 
-from fastmcp import FastMCP, Context
-from mcp.types import ImageContent, TextContent
+from mcp.server.fastmcp import FastMCP, Context
+from mcp.types import TextContent, ImageContent
 
 # Configure logging
 logging.basicConfig(
@@ -16,25 +16,6 @@ logger = logging.getLogger("FreeCADMCPserver")
 
 
 _only_text_feedback = False
-
-
-T = TypeVar("T")
-
-ToolContent = TextContent | ImageContent
-ToolResponse = list[ToolContent]
-OperationResult = dict[str, Any]
-OperationFn = Callable[["FreeCADConnection"], OperationResult]
-MessageFn = Callable[[OperationResult], str]
-QueryFn = Callable[["FreeCADConnection"], T]
-FormatterFn = Callable[[T], str]
-
-_SCREENSHOT_UNAVAILABLE_MESSAGE = (
-    "Note: Visual preview is unavailable in the current view type (such as TechDraw or "
-    "Spreadsheet). Switch to a 3D view to see visual feedback."
-)
-_TEXT_ONLY_MESSAGE = (
-    "Visual feedback disabled by the --only-text-feedback option."
-)
 
 
 class FreeCADConnection:
@@ -155,91 +136,22 @@ def get_freecad_connection():
 
 
 # Helper function to safely add screenshot to response
-def add_screenshot_if_available(response: ToolResponse, screenshot: str | None) -> ToolResponse:
-    """Attach screenshot feedback when possible."""
+def add_screenshot_if_available(response, screenshot):
+    """Safely add screenshot to response only if it's available"""
     if screenshot is not None and not _only_text_feedback:
         response.append(ImageContent(type="image", data=screenshot, mimeType="image/png"))
     elif not _only_text_feedback:
-        response.append(TextContent(type="text", text=_SCREENSHOT_UNAVAILABLE_MESSAGE))
+        # Add an informative message that will be seen by the AI model and user
+        response.append(TextContent(
+            type="text", 
+            text="Note: Visual preview is unavailable in the current view type (such as TechDraw or Spreadsheet). "
+                 "Switch to a 3D view to see visual feedback."
+        ))
     return response
 
 
-def _run_freecad_operation(
-    *,
-    operation: OperationFn,
-    success_message: MessageFn,
-    failure_message: MessageFn,
-    log_context: str,
-    log_details: str | None = None,
-    include_screenshot: bool = True,
-) -> ToolResponse:
-    """Execute an operation that returns a FreeCAD status dictionary."""
-    log_target = f"{log_context}{f' ({log_details})' if log_details else ''}"
-
-    try:
-        freecad = get_freecad_connection()
-        result = operation(freecad)
-    except Exception as exc:  # pragma: no cover - network boundary
-        logger.exception("Failed to %s", log_target)
-        return [TextContent(type="text", text=f"Failed to {log_context}: {exc}")]
-
-    screenshot = freecad.get_active_screenshot() if include_screenshot else None
-    success = bool(result.get("success"))
-    formatter = success_message if success else failure_message
-
-    try:
-        message = formatter(result)
-    except Exception as exc:  # pragma: no cover - defensive formatting guard
-        logger.exception("Failed to format response for %s", log_target)
-        message = (
-            f"Successfully completed {log_context}."
-            if success
-            else f"Failed to {log_context}: {exc}"
-        )
-
-    if not success:
-        logger.warning(
-            "FreeCAD reported failure during %s: %s",
-            log_target,
-            result.get("error", message),
-        )
-
-    response: ToolResponse = [TextContent(type="text", text=message)]
-    return add_screenshot_if_available(response, screenshot) if include_screenshot else response
-
-
-def _run_freecad_query(
-    *,
-    query: QueryFn[T],
-    formatter: FormatterFn[T],
-    log_context: str,
-    log_details: str | None = None,
-    include_screenshot: bool = True,
-) -> ToolResponse:
-    """Execute a FreeCAD query that returns arbitrary data."""
-    log_target = f"{log_context}{f' ({log_details})' if log_details else ''}"
-
-    try:
-        freecad = get_freecad_connection()
-        result = query(freecad)
-    except Exception as exc:  # pragma: no cover - network boundary
-        logger.exception("Failed to %s", log_target)
-        return [TextContent(type="text", text=f"Failed to {log_context}: {exc}")]
-
-    screenshot = freecad.get_active_screenshot() if include_screenshot else None
-
-    try:
-        message = formatter(result)
-    except Exception as exc:  # pragma: no cover - defensive formatting guard
-        logger.exception("Failed to format response for %s", log_target)
-        return [TextContent(type="text", text=f"Failed to {log_context}: {exc}")]
-
-    response: ToolResponse = [TextContent(type="text", text=message)]
-    return add_screenshot_if_available(response, screenshot) if include_screenshot else response
-
-
 @mcp.tool()
-def create_document(ctx: Context, name: str) -> ToolResponse:
+def create_document(ctx: Context, name: str) -> list[TextContent]:
     """Create a new document in FreeCAD.
 
     Args:
@@ -256,18 +168,22 @@ def create_document(ctx: Context, name: str) -> ToolResponse:
         }
         ```
     """
-    return _run_freecad_operation(
-        operation=lambda freecad: freecad.create_document(name),
-        success_message=lambda res: (
-            f"Document '{res.get('document_name', name)}' created successfully"
-        ),
-        failure_message=lambda res: (
-            f"Failed to create document: {res.get('error', 'Unknown error')}"
-        ),
-        log_context="create document",
-        log_details=name,
-        include_screenshot=False,
-    )
+    freecad = get_freecad_connection()
+    try:
+        res = freecad.create_document(name)
+        if res["success"]:
+            return [
+                TextContent(type="text", text=f"Document '{res['document_name']}' created successfully")
+            ]
+        else:
+            return [
+                TextContent(type="text", text=f"Failed to create document: {res['error']}")
+            ]
+    except Exception as e:
+        logger.error(f"Failed to create document: {str(e)}")
+        return [
+            TextContent(type="text", text=f"Failed to create document: {str(e)}")
+        ]
 
 
 @mcp.tool()
@@ -277,8 +193,8 @@ def create_object(
     obj_type: str,
     obj_name: str,
     analysis_name: str | None = None,
-    obj_properties: dict[str, Any] | None = None,
-) -> ToolResponse:
+    obj_properties: dict[str, Any] = None,
+) -> list[TextContent | ImageContent]:
     """Create a new object in FreeCAD.
     Object type is starts with "Part::" or "Draft::" or "PartDesign::" or "Fem::".
 
@@ -394,31 +310,33 @@ def create_object(
         }
         ```
     """
-    obj_data: dict[str, Any] = {
-        "Name": obj_name,
-        "Type": obj_type,
-        "Properties": obj_properties or {},
-    }
-    if analysis_name:
-        obj_data["Analysis"] = analysis_name
-
-    return _run_freecad_operation(
-        operation=lambda freecad: freecad.create_object(doc_name, obj_data),
-        success_message=lambda res: (
-            f"Object '{res.get('object_name', obj_name)}' created successfully"
-        ),
-        failure_message=lambda res: (
-            f"Failed to create object: {res.get('error', 'Unknown error')}"
-        ),
-        log_context="create object",
-        log_details=f"{doc_name}/{obj_name}",
-    )
+    freecad = get_freecad_connection()
+    try:
+        obj_data = {"Name": obj_name, "Type": obj_type, "Properties": obj_properties or {}, "Analysis": analysis_name}
+        res = freecad.create_object(doc_name, obj_data)
+        screenshot = freecad.get_active_screenshot()
+        
+        if res["success"]:
+            response = [
+                TextContent(type="text", text=f"Object '{res['object_name']}' created successfully"),
+            ]
+            return add_screenshot_if_available(response, screenshot)
+        else:
+            response = [
+                TextContent(type="text", text=f"Failed to create object: {res['error']}"),
+            ]
+            return add_screenshot_if_available(response, screenshot)
+    except Exception as e:
+        logger.error(f"Failed to create object: {str(e)}")
+        return [
+            TextContent(type="text", text=f"Failed to create object: {str(e)}")
+        ]
 
 
 @mcp.tool()
 def edit_object(
     ctx: Context, doc_name: str, obj_name: str, obj_properties: dict[str, Any]
-) -> ToolResponse:
+) -> list[TextContent | ImageContent]:
     """Edit an object in FreeCAD.
     This tool is used when the `create_object` tool cannot handle the object creation.
 
@@ -430,23 +348,30 @@ def edit_object(
     Returns:
         A message indicating the success or failure of the object editing and a screenshot of the object.
     """
-    return _run_freecad_operation(
-        operation=lambda freecad: freecad.edit_object(
-            doc_name, obj_name, {"Properties": obj_properties}
-        ),
-        success_message=lambda res: (
-            f"Object '{res.get('object_name', obj_name)}' edited successfully"
-        ),
-        failure_message=lambda res: (
-            f"Failed to edit object: {res.get('error', 'Unknown error')}"
-        ),
-        log_context="edit object",
-        log_details=f"{doc_name}/{obj_name}",
-    )
+    freecad = get_freecad_connection()
+    try:
+        res = freecad.edit_object(doc_name, obj_name, {"Properties": obj_properties})
+        screenshot = freecad.get_active_screenshot()
+
+        if res["success"]:
+            response = [
+                TextContent(type="text", text=f"Object '{res['object_name']}' edited successfully"),
+            ]
+            return add_screenshot_if_available(response, screenshot)
+        else:
+            response = [
+                TextContent(type="text", text=f"Failed to edit object: {res['error']}"),
+            ]
+            return add_screenshot_if_available(response, screenshot)
+    except Exception as e:
+        logger.error(f"Failed to edit object: {str(e)}")
+        return [
+            TextContent(type="text", text=f"Failed to edit object: {str(e)}")
+        ]
 
 
 @mcp.tool()
-def delete_object(ctx: Context, doc_name: str, obj_name: str) -> ToolResponse:
+def delete_object(ctx: Context, doc_name: str, obj_name: str) -> list[TextContent | ImageContent]:
     """Delete an object in FreeCAD.
 
     Args:
@@ -456,21 +381,30 @@ def delete_object(ctx: Context, doc_name: str, obj_name: str) -> ToolResponse:
     Returns:
         A message indicating the success or failure of the object deletion and a screenshot of the object.
     """
-    return _run_freecad_operation(
-        operation=lambda freecad: freecad.delete_object(doc_name, obj_name),
-        success_message=lambda res: (
-            f"Object '{res.get('object_name', obj_name)}' deleted successfully"
-        ),
-        failure_message=lambda res: (
-            f"Failed to delete object: {res.get('error', 'Unknown error')}"
-        ),
-        log_context="delete object",
-        log_details=f"{doc_name}/{obj_name}",
-    )
+    freecad = get_freecad_connection()
+    try:
+        res = freecad.delete_object(doc_name, obj_name)
+        screenshot = freecad.get_active_screenshot()
+        
+        if res["success"]:
+            response = [
+                TextContent(type="text", text=f"Object '{res['object_name']}' deleted successfully"),
+            ]
+            return add_screenshot_if_available(response, screenshot)
+        else:
+            response = [
+                TextContent(type="text", text=f"Failed to delete object: {res['error']}"),
+            ]
+            return add_screenshot_if_available(response, screenshot)
+    except Exception as e:
+        logger.error(f"Failed to delete object: {str(e)}")
+        return [
+            TextContent(type="text", text=f"Failed to delete object: {str(e)}")
+        ]
 
 
 @mcp.tool()
-def execute_code(ctx: Context, code: str) -> ToolResponse:
+def execute_code(ctx: Context, code: str) -> list[TextContent | ImageContent]:
     """Execute arbitrary Python code in FreeCAD.
 
     Args:
@@ -479,33 +413,30 @@ def execute_code(ctx: Context, code: str) -> ToolResponse:
     Returns:
         A message indicating the success or failure of the code execution, the output of the code execution, and a screenshot of the object.
     """
-    return _run_freecad_operation(
-        operation=lambda freecad: freecad.execute_code(code),
-        success_message=lambda res: (
-            f"Code executed successfully: {res.get('message', 'No output returned')}"
-        ),
-        failure_message=lambda res: (
-            f"Failed to execute code: {res.get('error', 'Unknown error')}"
-        ),
-        log_context="execute code",
-    )
+    freecad = get_freecad_connection()
+    try:
+        res = freecad.execute_code(code)
+        screenshot = freecad.get_active_screenshot()
+        
+        if res["success"]:
+            response = [
+                TextContent(type="text", text=f"Code executed successfully: {res['message']}"),
+            ]
+            return add_screenshot_if_available(response, screenshot)
+        else:
+            response = [
+                TextContent(type="text", text=f"Failed to execute code: {res['error']}"),
+            ]
+            return add_screenshot_if_available(response, screenshot)
+    except Exception as e:
+        logger.error(f"Failed to execute code: {str(e)}")
+        return [
+            TextContent(type="text", text=f"Failed to execute code: {str(e)}")
+        ]
 
 
 @mcp.tool()
-def get_view(
-    ctx: Context,
-    view_name: Literal[
-        "Isometric",
-        "Front",
-        "Top",
-        "Right",
-        "Back",
-        "Left",
-        "Bottom",
-        "Dimetric",
-        "Trimetric",
-    ],
-) -> ToolResponse:
+def get_view(ctx: Context, view_name: Literal["Isometric", "Front", "Top", "Right", "Back", "Left", "Bottom", "Dimetric", "Trimetric"]) -> list[ImageContent | TextContent]:
     """Get a screenshot of the active view.
 
     Args:
@@ -524,28 +455,17 @@ def get_view(
     Returns:
         A screenshot of the active view.
     """
-    try:
-        freecad = get_freecad_connection()
-    except Exception as exc:  # pragma: no cover - network boundary
-        logger.exception("Failed to get view %s", view_name)
-        return [TextContent(type="text", text=f"Failed to get view: {exc}")]
-
+    freecad = get_freecad_connection()
     screenshot = freecad.get_active_screenshot(view_name)
-
-    if screenshot is not None and not _only_text_feedback:
-        return [ImageContent(type="image", data=screenshot, mimeType="image/png")]
+    
     if screenshot is not None:
-        return [TextContent(type="text", text=_TEXT_ONLY_MESSAGE)]
-    return [
-        TextContent(
-            type="text",
-            text="Cannot get screenshot in the current view type (such as TechDraw or Spreadsheet)",
-        )
-    ]
+        return [ImageContent(type="image", data=screenshot, mimeType="image/png")]
+    else:
+        return [TextContent(type="text", text="Cannot get screenshot in the current view type (such as TechDraw or Spreadsheet)")]
 
 
 @mcp.tool()
-def insert_part_from_library(ctx: Context, relative_path: str) -> ToolResponse:
+def insert_part_from_library(ctx: Context, relative_path: str) -> list[TextContent | ImageContent]:
     """Insert a part from the parts library addon.
 
     Args:
@@ -554,21 +474,30 @@ def insert_part_from_library(ctx: Context, relative_path: str) -> ToolResponse:
     Returns:
         A message indicating the success or failure of the part insertion and a screenshot of the object.
     """
-    return _run_freecad_operation(
-        operation=lambda freecad: freecad.insert_part_from_library(relative_path),
-        success_message=lambda res: (
-            f"Part inserted from library: {res.get('message', 'Success')}"
-        ),
-        failure_message=lambda res: (
-            f"Failed to insert part from library: {res.get('error', 'Unknown error')}"
-        ),
-        log_context="insert part from library",
-        log_details=relative_path,
-    )
+    freecad = get_freecad_connection()
+    try:
+        res = freecad.insert_part_from_library(relative_path)
+        screenshot = freecad.get_active_screenshot()
+        
+        if res["success"]:
+            response = [
+                TextContent(type="text", text=f"Part inserted from library: {res['message']}"),
+            ]
+            return add_screenshot_if_available(response, screenshot)
+        else:
+            response = [
+                TextContent(type="text", text=f"Failed to insert part from library: {res['error']}"),
+            ]
+            return add_screenshot_if_available(response, screenshot)
+    except Exception as e:
+        logger.error(f"Failed to insert part from library: {str(e)}")
+        return [
+            TextContent(type="text", text=f"Failed to insert part from library: {str(e)}")
+        ]
 
 
 @mcp.tool()
-def get_objects(ctx: Context, doc_name: str) -> ToolResponse:
+def get_objects(ctx: Context, doc_name: str) -> list[dict[str, Any]]:
     """Get all objects in a document.
     You can use this tool to get the objects in a document to see what you can check or edit.
 
@@ -578,16 +507,22 @@ def get_objects(ctx: Context, doc_name: str) -> ToolResponse:
     Returns:
         A list of objects in the document and a screenshot of the document.
     """
-    return _run_freecad_query(
-        query=lambda freecad: freecad.get_objects(doc_name),
-        formatter=lambda payload: json.dumps(payload, default=str),
-        log_context="get objects",
-        log_details=doc_name,
-    )
+    freecad = get_freecad_connection()
+    try:
+        screenshot = freecad.get_active_screenshot()
+        response = [
+            TextContent(type="text", text=json.dumps(freecad.get_objects(doc_name))),
+        ]
+        return add_screenshot_if_available(response, screenshot)
+    except Exception as e:
+        logger.error(f"Failed to get objects: {str(e)}")
+        return [
+            TextContent(type="text", text=f"Failed to get objects: {str(e)}")
+        ]
 
 
 @mcp.tool()
-def get_object(ctx: Context, doc_name: str, obj_name: str) -> ToolResponse:
+def get_object(ctx: Context, doc_name: str, obj_name: str) -> dict[str, Any]:
     """Get an object from a document.
     You can use this tool to get the properties of an object to see what you can check or edit.
 
@@ -598,28 +533,34 @@ def get_object(ctx: Context, doc_name: str, obj_name: str) -> ToolResponse:
     Returns:
         The object and a screenshot of the object.
     """
-    return _run_freecad_query(
-        query=lambda freecad: freecad.get_object(doc_name, obj_name),
-        formatter=lambda payload: json.dumps(payload, default=str),
-        log_context="get object",
-        log_details=f"{doc_name}/{obj_name}",
-    )
+    freecad = get_freecad_connection()
+    try:
+        screenshot = freecad.get_active_screenshot()
+        response = [
+            TextContent(type="text", text=json.dumps(freecad.get_object(doc_name, obj_name))),
+        ]
+        return add_screenshot_if_available(response, screenshot)
+    except Exception as e:
+        logger.error(f"Failed to get object: {str(e)}")
+        return [
+            TextContent(type="text", text=f"Failed to get object: {str(e)}")
+        ]
 
 
 @mcp.tool()
-def get_parts_list(ctx: Context) -> ToolResponse:
-    """Get the list of parts in the parts library addon."""
-
-    return _run_freecad_query(
-        query=lambda freecad: freecad.get_parts_list(),
-        formatter=lambda parts: (
-            json.dumps(parts, default=str)
-            if parts
-            else "No parts found in the parts library. You must add parts_library addon."
-        ),
-        log_context="get parts list",
-        include_screenshot=False,
-    )
+def get_parts_list(ctx: Context) -> list[str]:
+    """Get the list of parts in the parts library addon.
+    """
+    freecad = get_freecad_connection()
+    parts = freecad.get_parts_list()
+    if parts:
+        return [
+            TextContent(type="text", text=json.dumps(parts))
+        ]
+    else:
+        return [
+            TextContent(type="text", text=f"No parts found in the parts library. You must add parts_library addon.")
+        ]
 
 
 @mcp.prompt()

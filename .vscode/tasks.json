@@ -1,0 +1,47 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "uv run freecad-mcp (debug)",
+            "type": "shell",
+            "command": "FREECAD_MCP_DEBUGPY_PORT=5678 uv run --with debugpy freecad-mcp",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "python",
+                "fileLocation": "absolute",
+                "pattern": {
+                    "regexp": "^.*$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": ".*",
+                    "endsPattern": ".*Waiting for debugger attach on.*"
+                }
+            }
+        },
+        {
+            "label": "uv run freecad-mcp (text only debug)",
+            "type": "shell",
+            "command": "FREECAD_MCP_DEBUGPY_PORT=5679 uv run --with debugpy freecad-mcp -- --only-text-feedback",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "python",
+                "fileLocation": "absolute",
+                "pattern": {
+                    "regexp": "^.*$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": ".*",
+                    "endsPattern": ".*Waiting for debugger attach on.*"
+                }
+            }
+        }
+    ]
+}

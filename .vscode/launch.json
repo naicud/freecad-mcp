@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "FreeCAD MCP Server (uv)",
+            "type": "python",
+            "request": "attach",
+            "connect": {
+                "host": "127.0.0.1",
+                "port": 5678
+            },
+            "preLaunchTask": "uv run freecad-mcp (debug)",
+            "justMyCode": true
+        },
+        {
+            "name": "FreeCAD MCP Server (uv text only)",
+            "type": "python",
+            "request": "attach",
+            "connect": {
+                "host": "127.0.0.1",
+                "port": 5679
+            },
+            "preLaunchTask": "uv run freecad-mcp (text only debug)",
+            "justMyCode": true
+        }
+    ]
+}
