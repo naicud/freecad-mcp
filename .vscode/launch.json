@@ -22,6 +22,17 @@
             },
             "preLaunchTask": "uv run freecad-mcp (text only debug)",
             "justMyCode": true
+        },
+        {
+            "name": "FreeCAD MCP Server (streamable-http)",
+            "type": "python",
+            "request": "attach",
+            "connect": {
+                "host": "127.0.0.1",
+                "port": 5680
+            },
+            "preLaunchTask": "uv run freecad-mcp (streamable-http debug)",
+            "justMyCode": true
         }
     ]
 }
