@@ -2,6 +2,27 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "uv run freecad-mcp-sse (debug)",
+      "type": "shell",
+      "command": "uv run --with debugpy freecad-mcp-sse",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "python",
+        "fileLocation": "absolute",
+        "pattern": {
+          "regexp": "^.*$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": ".*Waiting for debugger attach on.*"
+        }
+      }
+    },
+    {
       "label": "uv run freecad-mcp (debug)",
       "type": "shell",
       "command": "FREECAD_MCP_DEBUGPY_PORT=5678 uv run --with debugpy freecad-mcp",
@@ -46,7 +67,7 @@
     {
       "label": "uv run freecad-mcp (streamable-http debug)",
       "type": "shell",
-      "command": "FREECAD_MCP_DEBUGPY_PORT=5680 uv run --with debugpy freecad-mcp -- --transport streamable-http --host 127.0.0.1 --port 8000",
+      "command": "FREECAD_MCP_DEBUGPY_PORT=5680 uv run --with debugpy freecad-mcp -- --transport streamable-http --host 127.0.0.1 --port 8099",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -65,12 +86,25 @@
       }
     },
     {
-      "label": "stop debugpy listener",
+      "label": "stop debugpy listener stdio",
       "type": "shell",
       "command": "bash",
       "args": [
         "-lc",
         "if [ -f .env ]; then set -a; source .env; set +a; fi; HOST=${FREECAD_MCP_DEBUGPY_HOST:-127.0.0.1}; PORT=${FREECAD_MCP_DEBUGPY_PORT:-5678}; PIDS=$(lsof -tiTCP@${HOST}:${PORT} -sTCP:LISTEN 2>/dev/null); if [ -z \"$PIDS\" ]; then echo \"No listeners found on $HOST:$PORT\"; else echo \"Killing $PIDS listening on $HOST:$PORT\"; kill $PIDS; fi"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "stop debugpy listener SSE",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-lc",
+        "if [ -f .env ]; then set -a; source .env; set +a; fi; HOST=${FREECAD_MCP_DEBUGPY_HOST:-127.0.0.1}; PORT=8099; PIDS=$(lsof -tiTCP@${HOST}:${PORT} -sTCP:LISTEN 2>/dev/null); if [ -z \"$PIDS\" ]; then echo \"No listeners found on $HOST:$PORT\"; else echo \"Killing $PIDS listening on $HOST:$PORT\"; kill $PIDS; fi"
       ],
       "options": {
         "cwd": "${workspaceFolder}"

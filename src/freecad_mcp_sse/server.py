@@ -1,3 +1,4 @@
+import argparse
 import html
 import json
 import logging
@@ -6,7 +7,10 @@ import xmlrpc.client
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Callable, Dict, Literal, TypeVar
 
-from fastmcp import FastMCP, Context
+import uvicorn
+from fastapi import FastAPI
+from fastmcp import Context, FastMCP
+from fastmcp.server.http import create_sse_app
 from mcp.types import ImageContent, TextContent
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse
@@ -35,14 +39,19 @@ _SCREENSHOT_UNAVAILABLE_MESSAGE = (
     "Note: Visual preview is unavailable in the current view type (such as TechDraw or "
     "Spreadsheet). Switch to a 3D view to see visual feedback."
 )
-_TEXT_ONLY_MESSAGE = (
-    "Visual feedback disabled by the --only-text-feedback option."
-)
+_TEXT_ONLY_MESSAGE = "Visual feedback disabled by the --only-text-feedback option."
+
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8099
+DEFAULT_SSE_PATH = "/sse"
+DEFAULT_MESSAGE_PATH = "/messages"
 
 
 class FreeCADConnection:
-    def __init__(self, host: str = "localhost", port: int = 9875):
-        self.server = xmlrpc.client.ServerProxy(f"http://{host}:{port}", allow_none=True)
+    def __init__(self, host: str = "localhost", port: int = 8099):
+        self.server = xmlrpc.client.ServerProxy(
+            f"http://{host}:{port}", allow_none=True
+        )
 
     def ping(self) -> bool:
         return self.server.ping()
@@ -53,7 +62,9 @@ class FreeCADConnection:
     def create_object(self, doc_name: str, obj_data: dict[str, Any]) -> dict[str, Any]:
         return self.server.create_object(doc_name, obj_data)
 
-    def edit_object(self, doc_name: str, obj_name: str, obj_data: dict[str, Any]) -> dict[str, Any]:
+    def edit_object(
+        self, doc_name: str, obj_name: str, obj_data: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.server.edit_object(doc_name, obj_name, obj_data)
 
     def delete_object(self, doc_name: str, obj_name: str) -> dict[str, Any]:
@@ -68,7 +79,8 @@ class FreeCADConnection:
     def get_active_screenshot(self, view_name: str = "Isometric") -> str | None:
         try:
             # Check if we're in a view that supports screenshots
-            result = self.server.execute_code("""
+            result = self.server.execute_code(
+                """
 import FreeCAD
 import FreeCADGui
 
@@ -87,11 +99,18 @@ if FreeCAD.Gui.ActiveDocument and FreeCAD.Gui.ActiveDocument.ActiveView:
 else:
     print("No active view")
     False
-""")
+"""
+            )
 
             # If the view doesn't support screenshots, return None
-            if not result.get("success", False) or "Current view does not support screenshots" in result.get("message", ""):
-                logger.info("Screenshot unavailable in current view (likely Spreadsheet or TechDraw view)")
+            if not result.get(
+                "success", False
+            ) or "Current view does not support screenshots" in result.get(
+                "message", ""
+            ):
+                logger.info(
+                    "Screenshot unavailable in current view (likely Spreadsheet or TechDraw view)"
+                )
                 return None
 
             # Otherwise, try to get the screenshot
@@ -158,10 +177,14 @@ def get_freecad_connection():
 
 
 # Helper function to safely add screenshot to response
-def add_screenshot_if_available(response: ToolResponse, screenshot: str | None) -> ToolResponse:
+def add_screenshot_if_available(
+    response: ToolResponse, screenshot: str | None
+) -> ToolResponse:
     """Attach screenshot feedback when possible."""
     if screenshot is not None and not _only_text_feedback:
-        response.append(ImageContent(type="image", data=screenshot, mimeType="image/png"))
+        response.append(
+            ImageContent(type="image", data=screenshot, mimeType="image/png")
+        )
     elif not _only_text_feedback:
         response.append(TextContent(type="text", text=_SCREENSHOT_UNAVAILABLE_MESSAGE))
     return response
@@ -208,7 +231,11 @@ def _run_freecad_operation(
         )
 
     response: ToolResponse = [TextContent(type="text", text=message)]
-    return add_screenshot_if_available(response, screenshot) if include_screenshot else response
+    return (
+        add_screenshot_if_available(response, screenshot)
+        if include_screenshot
+        else response
+    )
 
 
 def _run_freecad_query(
@@ -238,7 +265,11 @@ def _run_freecad_query(
         return [TextContent(type="text", text=f"Failed to {log_context}: {exc}")]
 
     response: ToolResponse = [TextContent(type="text", text=message)]
-    return add_screenshot_if_available(response, screenshot) if include_screenshot else response
+    return (
+        add_screenshot_if_available(response, screenshot)
+        if include_screenshot
+        else response
+    )
 
 
 async def _collect_tool_summaries() -> list[dict[str, Any]]:
@@ -709,14 +740,14 @@ async def docs_page(_: Request) -> HTMLResponse:
 
         if params := summary.get("parameters"):
             block.append(
-                "<details><summary>Parameters schema</summary><pre>"\
+                "<details><summary>Parameters schema</summary><pre>"
                 + html.escape(json.dumps(params, indent=2))
                 + "</pre></details>"
             )
 
         if output_schema := summary.get("output_schema"):
             block.append(
-                "<details><summary>Output schema</summary><pre>"\
+                "<details><summary>Output schema</summary><pre>"
                 + html.escape(json.dumps(output_schema, indent=2))
                 + "</pre></details>"
             )
@@ -730,9 +761,9 @@ async def docs_page(_: Request) -> HTMLResponse:
     body = "\n".join(
         [
             "<!DOCTYPE html>",
-            "<html lang=\"en\">",
+            '<html lang="en">',
             "<head>",
-            "  <meta charset=\"utf-8\">",
+            '  <meta charset="utf-8">',
             "  <title>FreeCAD MCP Tools</title>",
             "  <style>body{font-family:system-ui;margin:2rem;}h1{margin-bottom:1rem;}section{margin-bottom:2rem;}details{margin-top:0.5rem;}pre{background:#f4f4f4;padding:0.75rem;border-radius:4px;overflow:auto;}</style>",
             "</head>",
@@ -780,56 +811,144 @@ Only revert to basic creation methods in the following cases:
 """
 
 
-def main():
-    """Run the MCP server"""
+def _normalize_relative_path(path: str) -> str:
+    """Ensure the provided path is a relative HTTP path."""
+    stripped = path.strip()
+    if not stripped:
+        raise ValueError("Path cannot be empty")
+    if "://" in stripped or stripped.startswith("//"):
+        raise ValueError(
+            "Path must be relative and must not include a scheme or network location"
+        )
+    if "?" in stripped or "#" in stripped:
+        raise ValueError("Path must not contain query strings or fragments")
+    if not stripped.startswith("/"):
+        stripped = f"/{stripped}"
+    return stripped
+
+
+def _set_only_text_feedback(enabled: bool) -> None:
     global _only_text_feedback
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--only-text-feedback", action="store_true", help="Only return text feedback")
+    _only_text_feedback = enabled
+    logger.info("Only text feedback: %s", _only_text_feedback)
+
+
+def create_app(
+    *,
+    only_text_feedback: bool = False,
+    sse_path: str = DEFAULT_SSE_PATH,
+    message_path: str = DEFAULT_MESSAGE_PATH,
+    debug: bool = False,
+) -> FastAPI:
+    """Create a FastAPI application exposing the FastMCP server over SSE."""
+    normalized_sse_path = _normalize_relative_path(sse_path)
+    normalized_message_path = _normalize_relative_path(message_path)
+
+    _set_only_text_feedback(only_text_feedback)
+
+    sse_app = create_sse_app(
+        server=mcp,
+        message_path=normalized_message_path,
+        sse_path=normalized_sse_path,
+        debug=debug,
+    )
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        async with sse_app.router.lifespan_context(sse_app):
+            yield
+
+    app = FastAPI(lifespan=lifespan, debug=debug)
+    app.mount("/", sse_app)
+    app.state.fastmcp_server = mcp
+    app.state.sse_path = normalized_sse_path
+    app.state.message_path = normalized_message_path
+
+    return app
+
+
+def main() -> None:
+    """Run the SSE server using FastAPI and uvicorn."""
+    parser = argparse.ArgumentParser(description="Run the FreeCAD MCP SSE server")
     parser.add_argument(
-        "--transport",
-        choices=["stdio", "streamable-http", "sse"],
-        default="stdio",
-        help="Transport to expose (use streamable-http for custom routes)",
+        "--only-text-feedback",
+        action="store_true",
+        help="Disable screenshot feedback and respond with text only",
     )
     parser.add_argument(
         "--host",
-        default="127.0.0.1",
-        help="Host for HTTP-based transports",
+        default=DEFAULT_HOST,
+        help="Host interface for the uvicorn server",
     )
     parser.add_argument(
         "--port",
         type=int,
-        default=8000,
-        help="Port for HTTP-based transports",
+        default=DEFAULT_PORT,
+        help="TCP port for the uvicorn server",
+    )
+    parser.add_argument(
+        "--sse-path",
+        default=DEFAULT_SSE_PATH,
+        help="Relative path that clients use to establish SSE connections",
+    )
+    parser.add_argument(
+        "--message-path",
+        default=DEFAULT_MESSAGE_PATH,
+        help="Relative path where clients POST MCP messages",
+    )
+    parser.add_argument(
+        "--log-level",
+        default="info",
+        choices=["critical", "error", "warning", "info", "debug", "trace"],
+        help="Log level forwarded to uvicorn",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable FastAPI debug mode for additional diagnostics",
     )
     args = parser.parse_args()
-    _only_text_feedback = args.only_text_feedback
-    logger.info(f"Only text feedback: {_only_text_feedback}")
+
     _maybe_enable_debugpy()
-    transport = args.transport
-    http_kwargs: dict[str, Any] = {}
-    if transport != "stdio":
-        http_kwargs.update(host=args.host, port=args.port)
-        logger.info(
-            "Starting FastMCP server with %s transport at %s:%s",
-            transport,
-            args.host,
-            args.port,
+
+    try:
+        app = create_app(
+            only_text_feedback=args.only_text_feedback,
+            sse_path=args.sse_path,
+            message_path=args.message_path,
+            debug=args.debug,
         )
-    else:
-        logger.info("Starting FastMCP server with stdio transport")
+    except ValueError as exc:  # pragma: no cover - defensive guard around CLI usage
+        parser.error(str(exc))
+        return
 
-    mcp.run(transport=transport, **http_kwargs)
+    logger.info(
+        "Starting FreeCAD MCP SSE server at %s:%s (SSE path %s, message path %s)",
+        args.host,
+        args.port,
+        app.state.sse_path,
+        app.state.message_path,
+    )
+
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.port,
+        log_level=args.log_level,
+    )
 
 
-def _maybe_enable_debugpy():
+def _maybe_enable_debugpy() -> None:
     port_value = os.getenv("FREECAD_MCP_DEBUGPY_PORT")
     if not port_value:
         return
 
     host = os.getenv("FREECAD_MCP_DEBUGPY_HOST", "127.0.0.1")
-    wait = os.getenv("FREECAD_MCP_DEBUGPY_WAIT_FOR_CLIENT", "1").lower() not in {"0", "false", "no"}
+    wait = os.getenv("FREECAD_MCP_DEBUGPY_WAIT_FOR_CLIENT", "1").lower() not in {
+        "0",
+        "false",
+        "no",
+    }
 
     try:
         port = int(port_value)
@@ -852,3 +971,7 @@ def _maybe_enable_debugpy():
     logger.info("Waiting for debugger attach on %s:%s", host, port)
     if wait:
         debugpy.wait_for_client()
+
+
+if __name__ == "__main__":
+    main()
