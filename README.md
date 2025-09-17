@@ -4,6 +4,24 @@
 
 This repository is a FreeCAD MCP that allows you to control FreeCAD from Claude Desktop.
 
+It now ships with both a classic stdio transport and a FastAPI-powered Server-Sent
+Events (SSE) service. Choose the option that best matches how your MCP client prefers
+to connect.
+
+## MCP server commands
+
+Once installed with [`uvx`](https://docs.astral.sh/uv/guides/tools/), the project
+provides two executables:
+
+| Command | Transport | Purpose |
+| --- | --- | --- |
+| `freecad-mcp` | stdio | Launches the original MCP server that Claude Desktop starts as a subprocess. |
+| `freecad-mcp-sse` | Server-Sent Events (FastAPI + uvicorn) | Hosts the same tools over HTTP with configurable host/port/SSE paths. |
+
+The SSE server accepts the same `--only-text-feedback` flag as the stdio version and
+adds options for `--host`, `--port`, `--sse-path`, and `--message-path` so it can be
+embedded into existing FastAPI deployments or reverse proxies.
+
 ## Demo
 
 ### Design a flange
@@ -56,10 +74,14 @@ And you can start RPC server by "Start RPC Server" command in "FreeCAD MCP" tool
 ## Setting up Claude Desktop
 
 Pre-installation of the [uvx](https://docs.astral.sh/uv/guides/tools/) is required.
+Edit the Claude Desktop config file, `claude_desktop_config.json`, and choose the
+transport that fits your workflow.
 
-And you need to edit Claude Desktop config file, `claude_desktop_config.json`.
+### stdio transport (default)
 
-For user.
+Use this option when Claude Desktop should launch the MCP server as a subprocess.
+
+#### User configuration
 
 ```json
 {
@@ -74,7 +96,8 @@ For user.
 }
 ```
 
-If you want to save token, you can set `only_text_feedback` to `true` and use only text feedback.
+To save tokens, append the `--only-text-feedback` flag so only text responses are
+returned:
 
 ```json
 {
@@ -90,9 +113,10 @@ If you want to save token, you can set `only_text_feedback` to `true` and use on
 }
 ```
 
+#### Developer configuration
 
-For developer.
-First, you need clone this repository.
+Clone this repository and point Claude Desktop at the local checkout so you can edit
+the code without reinstalling the package:
 
 ```bash
 git clone https://github.com/neka-nat/freecad-mcp.git
@@ -113,6 +137,38 @@ git clone https://github.com/neka-nat/freecad-mcp.git
   }
 }
 ```
+
+### SSE transport (FastAPI + uvicorn)
+
+Run the SSE server when you need to expose FreeCAD MCP over HTTP, share it between
+multiple clients, or take advantage of streaming responses provided by FastMCP.
+
+Start the server in a terminal:
+
+```bash
+uvx freecad-mcp-sse --host 127.0.0.1 --port 8000
+```
+
+Adjust `--host`, `--port`, `--sse-path`, `--message-path`, or `--only-text-feedback`
+to match your environment. Pass `--help` to list every option.
+
+Then register the SSE endpoint with Claude Desktop (requires Claude Desktop 0.6.1 or
+later):
+
+```json
+{
+  "mcpServers": {
+    "freecad-sse": {
+      "type": "sse",
+      "url": "http://127.0.0.1:8000/sse"
+    }
+  }
+}
+```
+
+Claude discovers the message endpoint from the SSE handshake automatically. If you
+change `--sse-path` or `--message-path`, update the URL above to match the new SSE
+path.
 
 ## Tools
 
