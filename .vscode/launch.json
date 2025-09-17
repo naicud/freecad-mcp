@@ -35,14 +35,14 @@
       "justMyCode": true
     },
     {
-      "name": "FreeCAD MCP Server (streamable-http)",
+      "name": "FreeCAD MCP Server SSE(streamable-http)",
       "type": "python",
       "request": "attach",
       "connect": {
         "host": "127.0.0.1",
-        "port": 5680
+        "port": 8099
       },
-      "preLaunchTask": "uv run freecad-mcp (streamable-http debug)",
+      "preLaunchTask": "uv run freecad-mcp-sse --transport streamable-http --host 0.0.0.0 --port 8099",
       "justMyCode": true
     }
   ]

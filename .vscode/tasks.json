@@ -65,9 +65,9 @@
       }
     },
     {
-      "label": "uv run freecad-mcp (streamable-http debug)",
+      "label": "uv run freecad-mcp-sse --transport streamable-http --host 0.0.0.0 --port 8099",
       "type": "shell",
-      "command": "FREECAD_MCP_DEBUGPY_PORT=5680 uv run --with debugpy freecad-mcp -- --transport streamable-http --host 127.0.0.1 --port 8099",
+      "command": "uv run --with debugpy freecad-mcp-sse --transport streamable-http --host 0.0.0.0 --port 8099",
       "options": {
         "cwd": "${workspaceFolder}"
       },
