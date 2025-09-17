@@ -13,10 +13,10 @@ to connect.
 Once installed with [`uvx`](https://docs.astral.sh/uv/guides/tools/), the project
 provides two executables:
 
-| Command | Transport | Purpose |
-| --- | --- | --- |
-| `freecad-mcp` | stdio | Launches the original MCP server that Claude Desktop starts as a subprocess. |
-| `freecad-mcp-sse` | Server-Sent Events (FastAPI + uvicorn) | Hosts the same tools over HTTP with configurable host/port/SSE paths. |
+| Command           | Transport                              | Purpose                                                                      |
+| ----------------- | -------------------------------------- | ---------------------------------------------------------------------------- |
+| `freecad-mcp`     | stdio                                  | Launches the original MCP server that Claude Desktop starts as a subprocess. |
+| `freecad-mcp-sse` | Server-Sent Events (FastAPI + uvicorn) | Hosts the same tools over HTTP with configurable host/port/SSE paths.        |
 
 The SSE server accepts the same `--only-text-feedback` flag as the stdio version and
 adds options for `--host`, `--port`, `--sse-path`, and `--message-path` so it can be
@@ -48,11 +48,12 @@ https://claude.ai/share/7b48fd60-68ba-46fb-bb21-2fbb17399b48
 ## Install addon
 
 FreeCAD Addon directory is
-* Windows: `%APPDATA%\FreeCAD\Mod\`
-* Mac: `~/Library/Application\ Support/FreeCAD/Mod/`
-* Linux:
-  * Ubuntu: `~/.FreeCAD/Mod/` or `~/snap/freecad/common/Mod/` (if you install FreeCAD from snap)
-  * Debian: `~/.local/share/FreeCAD/Mod`
+
+- Windows: `%APPDATA%\FreeCAD\Mod\`
+- Mac: `~/Library/Application\ Support/FreeCAD/Mod/`
+- Linux:
+  - Ubuntu: `~/.FreeCAD/Mod/` or `~/snap/freecad/common/Mod/` (if you install FreeCAD from snap)
+  - Debian: `~/.local/share/FreeCAD/Mod`
 
 Please put `addon/FreeCADMCP` directory to the addon directory.
 
@@ -88,9 +89,7 @@ Use this option when Claude Desktop should launch the MCP server as a subprocess
   "mcpServers": {
     "freecad": {
       "command": "uvx",
-      "args": [
-        "freecad-mcp"
-      ]
+      "args": ["freecad-mcp"]
     }
   }
 }
@@ -104,10 +103,7 @@ returned:
   "mcpServers": {
     "freecad": {
       "command": "uvx",
-      "args": [
-        "freecad-mcp",
-        "--only-text-feedback"
-      ]
+      "args": ["freecad-mcp", "--only-text-feedback"]
     }
   }
 }
@@ -127,12 +123,7 @@ git clone https://github.com/neka-nat/freecad-mcp.git
   "mcpServers": {
     "freecad": {
       "command": "uv",
-      "args": [
-        "--directory",
-        "/path/to/freecad-mcp/",
-        "run",
-        "freecad-mcp"
-      ]
+      "args": ["--directory", "/path/to/freecad-mcp/", "run", "freecad-mcp"]
     }
   }
 }
@@ -146,7 +137,7 @@ multiple clients, or take advantage of streaming responses provided by FastMCP.
 Start the server in a terminal:
 
 ```bash
-uvx freecad-mcp-sse --host 127.0.0.1 --port 8000
+uvx freecad-mcp-sse --host 127.0.0.1 --port 8099
 ```
 
 Adjust `--host`, `--port`, `--sse-path`, `--message-path`, or `--only-text-feedback`
@@ -160,7 +151,7 @@ later):
   "mcpServers": {
     "freecad-sse": {
       "type": "sse",
-      "url": "http://127.0.0.1:8000/sse"
+      "url": "http://127.0.0.1:8099/sse"
     }
   }
 }
@@ -172,16 +163,16 @@ path.
 
 ## Tools
 
-* `create_document`: Create a new document in FreeCAD.
-* `create_object`: Create a new object in FreeCAD.
-* `edit_object`: Edit an object in FreeCAD.
-* `delete_object`: Delete an object in FreeCAD.
-* `execute_code`: Execute arbitrary Python code in FreeCAD.
-* `insert_part_from_library`: Insert a part from the [parts library](https://github.com/FreeCAD/FreeCAD-library).
-* `get_view`: Get a screenshot of the active view.
-* `get_objects`: Get all objects in a document.
-* `get_object`: Get an object in a document.
-* `get_parts_list`: Get the list of parts in the [parts library](https://github.com/FreeCAD/FreeCAD-library).
+- `create_document`: Create a new document in FreeCAD.
+- `create_object`: Create a new object in FreeCAD.
+- `edit_object`: Edit an object in FreeCAD.
+- `delete_object`: Delete an object in FreeCAD.
+- `execute_code`: Execute arbitrary Python code in FreeCAD.
+- `insert_part_from_library`: Insert a part from the [parts library](https://github.com/FreeCAD/FreeCAD-library).
+- `get_view`: Get a screenshot of the active view.
+- `get_objects`: Get all objects in a document.
+- `get_object`: Get an object in a document.
+- `get_parts_list`: Get the list of parts in the [parts library](https://github.com/FreeCAD/FreeCAD-library).
 
 ## Contributors
 

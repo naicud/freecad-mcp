@@ -39,19 +39,19 @@ _SCREENSHOT_UNAVAILABLE_MESSAGE = (
     "Note: Visual preview is unavailable in the current view type (such as TechDraw or "
     "Spreadsheet). Switch to a 3D view to see visual feedback."
 )
-_TEXT_ONLY_MESSAGE = (
-    "Visual feedback disabled by the --only-text-feedback option."
-)
+_TEXT_ONLY_MESSAGE = "Visual feedback disabled by the --only-text-feedback option."
 
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 8000
+DEFAULT_PORT = 8099
 DEFAULT_SSE_PATH = "/sse"
 DEFAULT_MESSAGE_PATH = "/messages"
 
 
 class FreeCADConnection:
-    def __init__(self, host: str = "localhost", port: int = 9875):
-        self.server = xmlrpc.client.ServerProxy(f"http://{host}:{port}", allow_none=True)
+    def __init__(self, host: str = "localhost", port: int = 8099):
+        self.server = xmlrpc.client.ServerProxy(
+            f"http://{host}:{port}", allow_none=True
+        )
 
     def ping(self) -> bool:
         return self.server.ping()
@@ -62,7 +62,9 @@ class FreeCADConnection:
     def create_object(self, doc_name: str, obj_data: dict[str, Any]) -> dict[str, Any]:
         return self.server.create_object(doc_name, obj_data)
 
-    def edit_object(self, doc_name: str, obj_name: str, obj_data: dict[str, Any]) -> dict[str, Any]:
+    def edit_object(
+        self, doc_name: str, obj_name: str, obj_data: dict[str, Any]
+    ) -> dict[str, Any]:
         return self.server.edit_object(doc_name, obj_name, obj_data)
 
     def delete_object(self, doc_name: str, obj_name: str) -> dict[str, Any]:
@@ -77,7 +79,8 @@ class FreeCADConnection:
     def get_active_screenshot(self, view_name: str = "Isometric") -> str | None:
         try:
             # Check if we're in a view that supports screenshots
-            result = self.server.execute_code("""
+            result = self.server.execute_code(
+                """
 import FreeCAD
 import FreeCADGui
 
@@ -96,11 +99,18 @@ if FreeCAD.Gui.ActiveDocument and FreeCAD.Gui.ActiveDocument.ActiveView:
 else:
     print("No active view")
     False
-""")
+"""
+            )
 
             # If the view doesn't support screenshots, return None
-            if not result.get("success", False) or "Current view does not support screenshots" in result.get("message", ""):
-                logger.info("Screenshot unavailable in current view (likely Spreadsheet or TechDraw view)")
+            if not result.get(
+                "success", False
+            ) or "Current view does not support screenshots" in result.get(
+                "message", ""
+            ):
+                logger.info(
+                    "Screenshot unavailable in current view (likely Spreadsheet or TechDraw view)"
+                )
                 return None
 
             # Otherwise, try to get the screenshot
@@ -167,10 +177,14 @@ def get_freecad_connection():
 
 
 # Helper function to safely add screenshot to response
-def add_screenshot_if_available(response: ToolResponse, screenshot: str | None) -> ToolResponse:
+def add_screenshot_if_available(
+    response: ToolResponse, screenshot: str | None
+) -> ToolResponse:
     """Attach screenshot feedback when possible."""
     if screenshot is not None and not _only_text_feedback:
-        response.append(ImageContent(type="image", data=screenshot, mimeType="image/png"))
+        response.append(
+            ImageContent(type="image", data=screenshot, mimeType="image/png")
+        )
     elif not _only_text_feedback:
         response.append(TextContent(type="text", text=_SCREENSHOT_UNAVAILABLE_MESSAGE))
     return response
@@ -217,7 +231,11 @@ def _run_freecad_operation(
         )
 
     response: ToolResponse = [TextContent(type="text", text=message)]
-    return add_screenshot_if_available(response, screenshot) if include_screenshot else response
+    return (
+        add_screenshot_if_available(response, screenshot)
+        if include_screenshot
+        else response
+    )
 
 
 def _run_freecad_query(
@@ -247,7 +265,11 @@ def _run_freecad_query(
         return [TextContent(type="text", text=f"Failed to {log_context}: {exc}")]
 
     response: ToolResponse = [TextContent(type="text", text=message)]
-    return add_screenshot_if_available(response, screenshot) if include_screenshot else response
+    return (
+        add_screenshot_if_available(response, screenshot)
+        if include_screenshot
+        else response
+    )
 
 
 async def _collect_tool_summaries() -> list[dict[str, Any]]:
@@ -718,14 +740,14 @@ async def docs_page(_: Request) -> HTMLResponse:
 
         if params := summary.get("parameters"):
             block.append(
-                "<details><summary>Parameters schema</summary><pre>"\
+                "<details><summary>Parameters schema</summary><pre>"
                 + html.escape(json.dumps(params, indent=2))
                 + "</pre></details>"
             )
 
         if output_schema := summary.get("output_schema"):
             block.append(
-                "<details><summary>Output schema</summary><pre>"\
+                "<details><summary>Output schema</summary><pre>"
                 + html.escape(json.dumps(output_schema, indent=2))
                 + "</pre></details>"
             )
@@ -739,9 +761,9 @@ async def docs_page(_: Request) -> HTMLResponse:
     body = "\n".join(
         [
             "<!DOCTYPE html>",
-            "<html lang=\"en\">",
+            '<html lang="en">',
             "<head>",
-            "  <meta charset=\"utf-8\">",
+            '  <meta charset="utf-8">',
             "  <title>FreeCAD MCP Tools</title>",
             "  <style>body{font-family:system-ui;margin:2rem;}h1{margin-bottom:1rem;}section{margin-bottom:2rem;}details{margin-top:0.5rem;}pre{background:#f4f4f4;padding:0.75rem;border-radius:4px;overflow:auto;}</style>",
             "</head>",
@@ -795,7 +817,9 @@ def _normalize_relative_path(path: str) -> str:
     if not stripped:
         raise ValueError("Path cannot be empty")
     if "://" in stripped or stripped.startswith("//"):
-        raise ValueError("Path must be relative and must not include a scheme or network location")
+        raise ValueError(
+            "Path must be relative and must not include a scheme or network location"
+        )
     if "?" in stripped or "#" in stripped:
         raise ValueError("Path must not contain query strings or fragments")
     if not stripped.startswith("/"):
@@ -920,7 +944,11 @@ def _maybe_enable_debugpy() -> None:
         return
 
     host = os.getenv("FREECAD_MCP_DEBUGPY_HOST", "127.0.0.1")
-    wait = os.getenv("FREECAD_MCP_DEBUGPY_WAIT_FOR_CLIENT", "1").lower() not in {"0", "false", "no"}
+    wait = os.getenv("FREECAD_MCP_DEBUGPY_WAIT_FOR_CLIENT", "1").lower() not in {
+        "0",
+        "false",
+        "no",
+    }
 
     try:
         port = int(port_value)

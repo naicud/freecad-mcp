@@ -2,6 +2,17 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "FreeCAD MCP Server SSE (uv)",
+      "type": "python",
+      "request": "attach",
+      "connect": {
+        "host": "127.0.0.1",
+        "port": 8099
+      },
+      "preLaunchTask": "uv run freecad-mcp-sse (debug)",
+      "justMyCode": true
+    },
+    {
       "name": "FreeCAD MCP Server (uv)",
       "type": "python",
       "request": "attach",
