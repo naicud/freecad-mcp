@@ -860,27 +860,6 @@ def create_app(
 
     app = FastAPI(lifespan=lifespan, debug=debug)
 
-    @app.middleware("http")
-    async def log_requests_middleware(request: Request, call_next):
-        logger.info(f"Incoming request: {request.method} {request.url}")
-        body_bytes = await request.body()
-        if body_bytes:
-            # Log request body
-            try:
-                body_json = json.loads(body_bytes)
-                logger.info(f"Request body: {json.dumps(body_json, indent=2)}")
-            except json.JSONDecodeError:
-                logger.info(f"Request body: {body_bytes.decode(errors='ignore')}")
-
-        # Because reading the request body consumes it, we need to create a new
-        # 'receive' awaitable that returns the body, so the endpoint can read it.
-        async def receive():
-            return {"type": "http.request", "body": body_bytes}
-
-        request._receive = receive
-        response = await call_next(request)
-        return response
-
     app.mount("/", sse_app)
     app.state.fastmcp_server = mcp
     app.state.sse_path = normalized_sse_path
